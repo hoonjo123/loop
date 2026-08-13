@@ -87,15 +87,15 @@ public class User extends BaseTimeEntity {
         this.nicknameConfigured = true;
     }
 
-    public Long getId() {
-        return id;
-    }
-
-    public String getEmail() {
-        return email;
-    }
-
-    public String getPasswordHash() {
-        return passwordHash;
+    public void updateProfile(
+            String nickname,
+            String introduction,
+            String activityArea,
+            String profileImageUrl
+    ) {
+        this.nickname = nickname;
+        this.introduction = introduction;
+        this.activityArea = activityArea;
+        this.profileImageUrl = profileImageUrl;
     }
 }
