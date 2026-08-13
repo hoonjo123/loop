@@ -11,11 +11,17 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import world.loop.common.BaseTimeEntity;
+import lombok.AccessLevel;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Entity
 @Table(name = "user_blocks",
         uniqueConstraints = @UniqueConstraint(name = "uk_user_blocks_blocker_blocked", columnNames = {"blocker_id", "blocked_id"}),
         indexes = @Index(name = "idx_user_blocks_blocked", columnList = "blocked_id"))
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class UserBlock extends BaseTimeEntity {
 
     @Id
@@ -30,6 +36,9 @@ public class UserBlock extends BaseTimeEntity {
     @JoinColumn(name = "blocked_id", nullable = false)
     private User blocked;
 
-    protected UserBlock() {
+    @Builder
+    private UserBlock(User blocker, User blocked) {
+        this.blocker = blocker;
+        this.blocked = blocked;
     }
 }

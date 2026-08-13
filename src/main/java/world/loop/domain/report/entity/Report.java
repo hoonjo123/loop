@@ -16,6 +16,10 @@ import world.loop.common.BaseTimeEntity;
 import world.loop.domain.chat.entity.ChatMessage;
 import world.loop.domain.chat.entity.ChatRoom;
 import world.loop.domain.user.entity.User;
+import lombok.AccessLevel;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Entity
 @Table(name = "reports", indexes = {
@@ -24,6 +28,8 @@ import world.loop.domain.user.entity.User;
         @Index(name = "idx_reports_reported_room_created", columnList = "reported_room_id,created_at"),
         @Index(name = "idx_reports_reported_message_created", columnList = "reported_message_id,created_at")
 })
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Report extends BaseTimeEntity {
 
     @Id
@@ -56,6 +62,20 @@ public class Report extends BaseTimeEntity {
     @Column(nullable = false, length = 20)
     private ReportStatus status = ReportStatus.PENDING;
 
-    protected Report() {
+    @Builder
+    private Report(
+            User reporter,
+            User reportedUser,
+            ChatRoom reportedRoom,
+            ChatMessage reportedMessage,
+            String reason,
+            String description
+    ) {
+        this.reporter = reporter;
+        this.reportedUser = reportedUser;
+        this.reportedRoom = reportedRoom;
+        this.reportedMessage = reportedMessage;
+        this.reason = reason;
+        this.description = description;
     }
 }

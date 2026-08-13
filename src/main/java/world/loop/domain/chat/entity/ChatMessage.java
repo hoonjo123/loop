@@ -13,11 +13,17 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
+import lombok.AccessLevel;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 import world.loop.common.BaseTimeEntity;
 import world.loop.domain.user.entity.User;
 
 @Entity
 @Table(name = "chat_messages", indexes = @Index(name = "idx_chat_messages_room_created", columnList = "room_id,created_at"))
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ChatMessage extends BaseTimeEntity {
 
     @Id
@@ -45,6 +51,24 @@ public class ChatMessage extends BaseTimeEntity {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
-    protected ChatMessage() {
+    @Builder
+    private ChatMessage(
+            ChatRoom room,
+            User sender,
+            MessageType messageType,
+            String content,
+            String imageUrl
+    ) {
+        this.room = room;
+        this.sender = sender;
+        this.messageType = messageType;
+        this.content = content;
+        this.imageUrl = imageUrl;
+    }
+
+    public void delete() {
+        this.content = null;
+        this.imageUrl = null;
+        this.deletedAt = LocalDateTime.now();
     }
 }

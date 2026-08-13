@@ -14,6 +14,10 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import lombok.AccessLevel;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 import world.loop.common.BaseTimeEntity;
 import world.loop.domain.user.entity.User;
 
@@ -22,6 +26,8 @@ import world.loop.domain.user.entity.User;
         @Index(name = "idx_chat_rooms_region_status", columnList = "region_label,status"),
         @Index(name = "idx_chat_rooms_expires_at", columnList = "expires_at")
 })
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ChatRoom extends BaseTimeEntity {
 
     @Id
@@ -54,6 +60,9 @@ public class ChatRoom extends BaseTimeEntity {
     @Column(name = "expires_at")
     private LocalDateTime expiresAt;
 
+    @Column(name = "direct_key", unique = true, length = 50)
+    private String directKey;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private ChatRoomStatus status = ChatRoomStatus.ACTIVE;
@@ -62,6 +71,38 @@ public class ChatRoom extends BaseTimeEntity {
     @JoinColumn(name = "created_by_id", nullable = false)
     private User createdBy;
 
-    protected ChatRoom() {
+    @Builder
+    private ChatRoom(
+            ChatRoomType roomType,
+            RoomDurationType durationType,
+            String title,
+            String description,
+            String regionLabel,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            LocalDateTime expiresAt,
+            String directKey,
+            User createdBy
+    ) {
+        this.roomType = roomType;
+        this.durationType = durationType;
+        this.title = title;
+        this.description = description;
+        this.regionLabel = regionLabel;
+        this.latitude = latitude;
+        this.longitude = longitude;
+        this.expiresAt = expiresAt;
+        this.directKey = directKey;
+        this.createdBy = createdBy;
+    }
+
+    public boolean isExpired(LocalDateTime now) {
+        return durationType == RoomDurationType.TEMPORARY
+                && expiresAt != null
+                && !expiresAt.isAfter(now);
+    }
+
+    public void close() {
+        this.status = ChatRoomStatus.CLOSED;
     }
 }

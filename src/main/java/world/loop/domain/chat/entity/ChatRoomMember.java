@@ -14,6 +14,10 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
+import lombok.AccessLevel;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 import world.loop.common.BaseTimeEntity;
 import world.loop.domain.user.entity.User;
 
@@ -21,6 +25,8 @@ import world.loop.domain.user.entity.User;
 @Table(name = "chat_room_members",
         uniqueConstraints = @UniqueConstraint(name = "uk_chat_room_members_room_user", columnNames = {"room_id", "user_id"}),
         indexes = @Index(name = "idx_chat_room_members_user_joined", columnList = "user_id,joined_at"))
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ChatRoomMember extends BaseTimeEntity {
 
     @Id
@@ -48,6 +54,28 @@ public class ChatRoomMember extends BaseTimeEntity {
     @Column(name = "last_read_at")
     private LocalDateTime lastReadAt;
 
-    protected ChatRoomMember() {
+    @Builder
+    private ChatRoomMember(ChatRoom room, User user, ChatMemberRole role) {
+        this.room = room;
+        this.user = user;
+        this.role = role;
+        this.joinedAt = LocalDateTime.now();
+    }
+
+    public boolean isActive() {
+        return leftAt == null;
+    }
+
+    public void rejoin() {
+        this.joinedAt = LocalDateTime.now();
+        this.leftAt = null;
+    }
+
+    public void leave() {
+        this.leftAt = LocalDateTime.now();
+    }
+
+    public void markRead(LocalDateTime readAt) {
+        this.lastReadAt = readAt;
     }
 }
