@@ -4,13 +4,13 @@ import io.jsonwebtoken.Claims;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Duration;
-import java.util.Set;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
 import world.loop.config.JwtProperties;
+import world.loop.config.RedisScriptConfig.RefreshTokenRedisScripts;
 import world.loop.global.exception.RefreshTokenReuseException;
 
 @Service
@@ -23,6 +23,7 @@ public class RefreshTokenService {
     private final StringRedisTemplate redisTemplate;
     private final JwtTokenProvider jwtTokenProvider;
     private final JwtProperties jwtProperties;
+    private final RefreshTokenRedisScripts redisScripts;
 
     public TokenPair issue(Long userId) {
         String sessionId = UUID.randomUUID().toString();
@@ -37,17 +38,27 @@ public class RefreshTokenService {
             throw new IllegalArgumentException("Refresh token is required.");
         }
         Long userId = Long.valueOf(claims.getSubject());
-        String sessionId = claims.get("sid", String.class);
-        String key = sessionKey(userId, sessionId);
-        String storedHash = redisTemplate.opsForValue().get(key);
-        if (storedHash == null || !storedHash.equals(hash(refreshToken))) {
+        String currentSessionId = claims.get("sid", String.class);
+        String nextSessionId = UUID.randomUUID().toString();
+        String nextRefreshToken = jwtTokenProvider.createRefreshToken(userId, nextSessionId);
+        Long rotated = redisTemplate.execute(
+                redisScripts.rotate(),
+                List.of(
+                        sessionKey(userId, currentSessionId),
+                        sessionKey(userId, nextSessionId),
+                        userSessionsKey(userId)
+                ),
+                hash(refreshToken),
+                currentSessionId,
+                nextSessionId,
+                hash(nextRefreshToken),
+                String.valueOf(jwtProperties.refreshTokenTtl().toMillis())
+        );
+        if (!Long.valueOf(1).equals(rotated)) {
             revokeAll(userId);
             throw new RefreshTokenReuseException();
         }
-
-        redisTemplate.delete(key);
-        redisTemplate.opsForSet().remove(userSessionsKey(userId), sessionId);
-        return issue(userId);
+        return new TokenPair(jwtTokenProvider.createAccessToken(userId), nextRefreshToken);
     }
 
     public void revoke(String refreshToken) {
@@ -55,24 +66,30 @@ public class RefreshTokenService {
         if ("refresh".equals(claims.get("type", String.class))) {
             Long userId = Long.valueOf(claims.getSubject());
             String sessionId = claims.get("sid", String.class);
-            redisTemplate.delete(sessionKey(userId, sessionId));
-            redisTemplate.opsForSet().remove(userSessionsKey(userId), sessionId);
+            redisTemplate.execute(
+                    redisScripts.revoke(),
+                    List.of(sessionKey(userId, sessionId), userSessionsKey(userId)),
+                    sessionId
+            );
         }
     }
 
     private void save(Long userId, String sessionId, String refreshToken) {
-        Duration ttl = jwtProperties.refreshTokenTtl();
-        redisTemplate.opsForValue().set(sessionKey(userId, sessionId), hash(refreshToken), ttl);
-        redisTemplate.opsForSet().add(userSessionsKey(userId), sessionId);
-        redisTemplate.expire(userSessionsKey(userId), ttl);
+        redisTemplate.execute(
+                redisScripts.save(),
+                List.of(sessionKey(userId, sessionId), userSessionsKey(userId)),
+                hash(refreshToken),
+                sessionId,
+                String.valueOf(jwtProperties.refreshTokenTtl().toMillis())
+        );
     }
 
     private void revokeAll(Long userId) {
-        Set<String> sessionIds = redisTemplate.opsForSet().members(userSessionsKey(userId));
-        if (sessionIds != null) {
-            sessionIds.forEach(sessionId -> redisTemplate.delete(sessionKey(userId, sessionId)));
-        }
-        redisTemplate.delete(userSessionsKey(userId));
+        redisTemplate.execute(
+                redisScripts.revokeAll(),
+                List.of(userSessionsKey(userId)),
+                SESSION_PREFIX + userId + ':'
+        );
     }
 
     private String sessionKey(Long userId, String sessionId) {

@@ -53,7 +53,7 @@ Refresh Token: Access Token 재발급 및 세션 관리
 
 ### 4.1 Access Token
 
-- 기본 유효기간: 30분
+- 기본 유효기간: 10분
 - `sub`: 사용자 ID
 - `type`: `access`
 - 용도: 보호된 API 요청의 사용자 인증
@@ -104,6 +104,8 @@ Redis에는 Refresh Token 원문을 저장하지 않는다. Redis 데이터가 �
 
 Refresh Token은 한 번 사용할 때마다 폐기하고 새 토큰을 발급한다.
 
+회전 과정은 Redis Lua Script로 실행한다. 기존 해시 확인, 기존 세션 삭제, 새 Refresh Token 해시 저장, 사용자 세션 Set 교체를 하나의 원자적 연산으로 묶는다. Redis는 Lua Script가 실행되는 동안 다른 명령을 끼워 넣지 않으므로 동일한 Refresh Token을 동시에 제출해도 한 요청만 회전에 성공한다.
+
 ```text
 로그인
   └─ Refresh A 발급 및 Redis에 hash(A) 저장
@@ -133,9 +135,11 @@ RefreshTokenReuseException 발생
 
 이 정책은 정상 사용자가 불편을 겪을 수 있지만, 탈취 가능성이 확인된 상황에서 공격자가 남아 있는 다른 세션을 계속 사용하는 위험을 낮춘다.
 
+로그인 시 Refresh 세션을 최초 저장하는 작업과 재사용 탐지 후 전체 세션을 폐기하는 작업도 각각 Lua Script로 수행한다. 세션 키와 사용자 sessionId Set 중 한쪽만 갱신되는 부분 실패를 방지하기 위한 조치다.
+
 ## 8. 로그아웃
 
-로그아웃 요청은 Refresh Token에서 사용자 ID와 세션 ID를 읽은 뒤, 해당 세션의 Redis 키와 사용자 세션 Set의 sessionId를 삭제한다. 삭제된 Refresh Token은 더 이상 재발급에 사용할 수 없다.
+로그아웃 요청은 Refresh Token에서 사용자 ID와 세션 ID를 읽은 뒤, 해당 세션의 Redis 키와 사용자 세션 Set의 sessionId를 Lua Script 하나에서 삭제한다. 삭제된 Refresh Token은 더 이상 재발급에 사용할 수 없다.
 
 현재 구현에서 OAuth 로그인은 Refresh Token을 HttpOnly 쿠키로 전달한다. 향후 로그아웃 API는 요청 본문 토큰 방식과 쿠키 방식 모두를 일관되게 처리하도록 확장하는 것이 필요하다.
 
@@ -175,9 +179,11 @@ OAuth 성공 시 생성되는 쿠키는 다음 성질을 가진다.
 - `HttpOnly`: JavaScript의 `document.cookie`로 읽을 수 없다.
 - `SameSite=Lax`: 일반적인 교차 사이트 요청에서 쿠키 전송을 제한한다.
 - `Path=/`: 백엔드 전체 경로에 적용한다.
-- `Max-Age`: Access는 30분, Refresh는 14일로 설정한다.
+- `Max-Age`: Access는 10분, Refresh는 14일로 설정한다.
 
 프론트는 리다이렉트 후 `GET /api/auth/session`을 호출한다. 브라우저는 `credentials: include` 옵션으로 HttpOnly 쿠키를 함께 전송한다. 백엔드 JWT 필터가 Access Token을 검증하면 세션 API는 204를 응답하고, 프론트는 이를 로그인 완료 상태로 판단해 초기 지도 화면을 표시한다.
+
+Access Token이 만료되어 세션 확인이 401이면 프론트는 `POST /api/auth/refresh/cookie`를 호출한다. 이 API는 HttpOnly Refresh Token 쿠키를 읽어 Rotation을 수행하고 새 Access/Refresh 쿠키를 응답한다. 갱신 성공 후 프론트는 다시 로그인 상태로 진입한다. Refresh Token도 만료됐거나 재사용이 탐지된 경우에만 로그인 화면으로 전환한다.
 
 ## 11. CORS 설정
 
@@ -199,6 +205,7 @@ Credential을 허용하는 CORS 응답에서 Origin을 `*`로 설정하면 안 �
 | `POST` | `/api/auth/sign-up` | 아니오 | 회원가입 및 토큰 발급 |
 | `POST` | `/api/auth/login` | 아니오 | 이메일 로그인 및 토큰 발급 |
 | `POST` | `/api/auth/refresh` | 아니오 | Refresh Token 회전 |
+| `POST` | `/api/auth/refresh/cookie` | 아니오 | HttpOnly Refresh Cookie 기반 토큰 회전 |
 | `POST` | `/api/auth/logout` | 아니오 | 현재 Refresh 세션 폐기 |
 | `GET` | `/api/auth/session` | 예 | HttpOnly Access Token 유효성 확인 |
 | `GET` | `/oauth2/authorization/google` | 아니오 | Google 로그인 시작 |

@@ -10,9 +10,9 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.http.ResponseCookie;
 import org.springframework.beans.factory.annotation.Value;
 import world.loop.domain.auth.token.RefreshTokenService;
+import world.loop.domain.auth.token.AuthenticationCookieService;
 import world.loop.domain.user.entity.AuthProvider;
 import world.loop.domain.user.entity.User;
 import world.loop.domain.user.repository.UserRepository;
@@ -23,6 +23,7 @@ public class GoogleOAuth2SuccessHandler implements AuthenticationSuccessHandler 
 
     private final UserRepository userRepository;
     private final RefreshTokenService refreshTokenService;
+    private final AuthenticationCookieService authenticationCookieService;
 
     @Value("${auth.frontend-url}")
     private String frontendUrl;
@@ -48,8 +49,7 @@ public class GoogleOAuth2SuccessHandler implements AuthenticationSuccessHandler 
                         .authProvider(AuthProvider.GOOGLE)
                         .build()));
         RefreshTokenService.TokenPair tokens = refreshTokenService.issue(user.getId());
-        addHttpOnlyCookie(response, "loop_access_token", tokens.accessToken(), 30 * 60);
-        addHttpOnlyCookie(response, "loop_refresh_token", tokens.refreshToken(), 14 * 24 * 60 * 60);
+        authenticationCookieService.addTokenCookies(response, tokens);
         response.sendRedirect(frontendUrl);
     }
 
@@ -62,13 +62,4 @@ public class GoogleOAuth2SuccessHandler implements AuthenticationSuccessHandler 
         return (base.length() > 8 ? base.substring(0, 8) : base) + System.currentTimeMillis() % 10_000;
     }
 
-    private void addHttpOnlyCookie(HttpServletResponse response, String name, String value, long maxAge) {
-        ResponseCookie cookie = ResponseCookie.from(name, value)
-                .httpOnly(true)
-                .sameSite("Lax")
-                .path("/")
-                .maxAge(maxAge)
-                .build();
-        response.addHeader("Set-Cookie", cookie.toString());
-    }
 }
