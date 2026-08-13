@@ -1,6 +1,7 @@
 package world.loop.domain.auth.controller;
 
 import jakarta.validation.Valid;
+import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,6 +23,7 @@ import world.loop.domain.auth.service.AuthService;
 import world.loop.domain.mail.service.EmailVerificationService;
 import world.loop.domain.auth.token.RefreshTokenService;
 import world.loop.domain.auth.token.AuthenticationCookieService;
+import world.loop.domain.auth.token.AccessTokenRevocationService;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -32,6 +34,7 @@ public class AuthController {
     private final EmailVerificationService emailVerificationService;
     private final RefreshTokenService refreshTokenService;
     private final AuthenticationCookieService authenticationCookieService;
+    private final AccessTokenRevocationService accessTokenRevocationService;
 
     @PostMapping("/email-verifications")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -80,8 +83,13 @@ public class AuthController {
 
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void logout(@Valid @RequestBody RefreshRequest request) {
-        refreshTokenService.revoke(request.refreshToken());
+    public void logout(HttpServletRequest request, HttpServletResponse response) {
+        String refreshToken = findCookieValue(request, AuthenticationCookieService.REFRESH_TOKEN_COOKIE);
+        String accessToken = findCookieValue(request, AuthenticationCookieService.ACCESS_TOKEN_COOKIE);
+
+        revokeRefreshToken(refreshToken);
+        revokeAccessToken(accessToken);
+        authenticationCookieService.clearTokenCookies(response);
     }
 
     @GetMapping("/session")
@@ -100,5 +108,27 @@ public class AuthController {
             }
         }
         return null;
+    }
+
+    private void revokeRefreshToken(String refreshToken) {
+        if (refreshToken == null) {
+            return;
+        }
+        try {
+            refreshTokenService.revoke(refreshToken);
+        } catch (JwtException ignored) {
+            // 이미 만료되었거나 유효하지 않은 토큰은 재사용할 수 없으므로 로그아웃을 계속한다.
+        }
+    }
+
+    private void revokeAccessToken(String accessToken) {
+        if (accessToken == null) {
+            return;
+        }
+        try {
+            accessTokenRevocationService.revoke(accessToken);
+        } catch (JwtException ignored) {
+            // 이미 만료되었거나 유효하지 않은 토큰은 블랙리스트에 저장할 필요가 없다.
+        }
     }
 }

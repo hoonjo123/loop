@@ -139,9 +139,11 @@ RefreshTokenReuseException 발생
 
 ## 8. 로그아웃
 
-로그아웃 요청은 Refresh Token에서 사용자 ID와 세션 ID를 읽은 뒤, 해당 세션의 Redis 키와 사용자 세션 Set의 sessionId를 Lua Script 하나에서 삭제한다. 삭제된 Refresh Token은 더 이상 재발급에 사용할 수 없다.
+로그아웃 요청은 HttpOnly 쿠키의 Access/Refresh Token을 서버에서 읽는다. Refresh Token에서는 사용자 ID와 세션 ID를 확인하고, 해당 세션의 Redis 키와 사용자 세션 Set의 sessionId를 Lua Script 하나에서 삭제한다. 삭제된 Refresh Token은 더 이상 재발급에 사용할 수 없다.
 
-현재 구현에서 OAuth 로그인은 Refresh Token을 HttpOnly 쿠키로 전달한다. 향후 로그아웃 API는 요청 본문 토큰 방식과 쿠키 방식 모두를 일관되게 처리하도록 확장하는 것이 필요하다.
+Access Token은 Stateless JWT이므로 쿠키만 삭제하면 유효기간 동안 탈취된 원문을 계속 사용할 수 있다. 이를 방지하기 위해 로그아웃 시 Access Token의 `jti`를 `auth:access:revoked:{jti}` 키로 Redis에 저장한다. TTL은 토큰의 남은 유효시간만 적용한다. JWT 필터는 매 요청마다 이 키를 확인하며, 등록된 Access Token은 만료 전이라도 인증하지 않는다.
+
+서버 폐기가 완료되면 Access/Refresh 쿠키를 `Max-Age=0`으로 삭제한다. 프론트도 `sessionStorage`에 남은 토큰을 제거하고 로그인 화면으로 전환한다.
 
 ## 9. Google OAuth2 로그인
 

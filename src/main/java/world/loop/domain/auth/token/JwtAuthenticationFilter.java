@@ -20,6 +20,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final AccessTokenRevocationService accessTokenRevocationService;
 
     @Override
     protected void doFilterInternal(
@@ -55,6 +56,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             Claims claims = jwtTokenProvider.parse(token);
             if (!"access".equals(claims.get("type", String.class))) {
+                return;
+            }
+            if (accessTokenRevocationService.isRevoked(claims.getId())) {
                 return;
             }
             var authentication = new UsernamePasswordAuthenticationToken(
