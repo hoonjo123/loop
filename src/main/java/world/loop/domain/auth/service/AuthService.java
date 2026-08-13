@@ -10,6 +10,8 @@ import world.loop.domain.auth.token.RefreshTokenService;
 import world.loop.domain.user.entity.AuthProvider;
 import world.loop.domain.user.entity.User;
 import world.loop.domain.user.repository.UserRepository;
+import world.loop.global.exception.BusinessException;
+import world.loop.global.exception.ErrorCode;
 
 @Service
 @Slf4j
@@ -23,11 +25,20 @@ public class AuthService {
 
     @Transactional
     public RefreshTokenService.TokenPair signUp(String email, String password, String nickname) {
-        emailVerificationService.requireVerified(email);
-        if (userRepository.existsByEmail(email) || userRepository.existsByNickname(nickname)) {
-            throw new IllegalArgumentException("Email or nickname already exists.");
+        if (userRepository.existsByEmail(email)) {
+            throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
-        User user = userRepository.save(User.builder().email(email).passwordHash(passwordEncoder.encode(password)).nickname(nickname).authProvider(AuthProvider.LOCAL).build());
+        if (userRepository.existsByNickname(nickname)) {
+            throw new BusinessException(ErrorCode.NICKNAME_ALREADY_EXISTS);
+        }
+        emailVerificationService.requireVerified(email);
+        User user = userRepository.save(User.builder()
+                .email(email)
+                .passwordHash(passwordEncoder.encode(password))
+                .nickname(nickname)
+                .nicknameConfigured(true)
+                .authProvider(AuthProvider.LOCAL)
+                .build());
         return refreshTokenService.issue(user.getId());
     }
 
@@ -37,5 +48,20 @@ public class AuthService {
             throw new IllegalArgumentException("Invalid credentials.");
         }
         return refreshTokenService.issue(user.getId());
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isNicknameAvailable(String nickname) {
+        return !userRepository.existsByNickname(nickname);
+    }
+
+    @Transactional(readOnly = true)
+    public UserSession session(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found."));
+        return new UserSession(user.getId(), user.getNickname(), user.isNicknameConfigured());
+    }
+
+    public record UserSession(Long userId, String nickname, boolean nicknameConfigured) {
     }
 }

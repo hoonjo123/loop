@@ -37,6 +37,9 @@ public class User extends BaseTimeEntity {
     @Column(nullable = false, unique = true, length = 12)
     private String nickname;
 
+    @Column(name = "nickname_configured", nullable = false)
+    private boolean nicknameConfigured;
+
     @Column(name = "profile_image_url", length = 500)
     private String profileImageUrl;
 
@@ -65,11 +68,23 @@ public class User extends BaseTimeEntity {
     private List<Report> receivedReports = new ArrayList<>();
 
     @Builder
-    private User(String email, String passwordHash, String nickname, AuthProvider authProvider) {
+    private User(
+            String email,
+            String passwordHash,
+            String nickname,
+            boolean nicknameConfigured,
+            AuthProvider authProvider
+    ) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.nickname = nickname;
+        this.nicknameConfigured = nicknameConfigured;
         this.authProvider = authProvider;
+    }
+
+    public void configureNickname(String nickname) {
+        this.nickname = nickname;
+        this.nicknameConfigured = true;
     }
 
     public Long getId() {

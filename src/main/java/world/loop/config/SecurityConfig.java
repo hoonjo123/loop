@@ -32,7 +32,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/email-verifications/**", "/api/auth/sign-up", "/api/auth/login", "/api/auth/refresh", "/api/auth/refresh/cookie", "/api/auth/logout", "/api/mail/**", "/oauth2/**", "/login/**")
+                        .requestMatchers("/api/auth/email-verifications/**", "/api/auth/nicknames/**", "/api/auth/sign-up", "/api/auth/login", "/api/auth/refresh", "/api/auth/refresh/cookie", "/api/auth/logout", "/api/mail/**", "/oauth2/**", "/login/**")
                         .permitAll()
                         .anyRequest()
                         .authenticated())

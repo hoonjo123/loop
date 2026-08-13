@@ -35,7 +35,8 @@ Refresh Token: Access Token 재발급 및 세션 관리
 | --- | --- | --- | --- |
 | 1 | `POST` | `/api/auth/email-verifications` | 6자리 인증번호 발송 |
 | 2 | `POST` | `/api/auth/email-verifications/confirm` | 인증번호 확인 |
-| 3 | `POST` | `/api/auth/sign-up` | 이메일 인증 완료 후 회원 생성 및 토큰 발급 |
+| 3 | `POST` | `/api/auth/nicknames/check` | 닉네임 사용 가능 여부 확인 |
+| 4 | `POST` | `/api/auth/sign-up` | 이메일 인증 완료 후 회원 생성 및 토큰 발급 |
 
 ### 3.2 Redis 이메일 인증 키
 
@@ -46,6 +47,14 @@ Refresh Token: Access Token 재발급 및 세션 관리
 | `auth:email:verified:{email}` | `1` | 5분 | 회원가입 직전 이메일 인증 완료 여부 |
 
 인증번호가 맞으면 인증번호 키는 즉시 삭제한다. 대신 짧은 TTL의 인증 완료 키를 저장한다. 회원가입 시 인증 완료 키가 존재해야 하며, 가입 성공 시에도 즉시 삭제한다. 이 방식은 인증번호를 알고 있는 것만으로 장기간 가입 권한이 유지되는 문제를 줄인다.
+
+인증번호 발송 응답에는 `expiresInSeconds`와 `resendAfterSeconds`를 포함한다. 프론트는 서버 설정값을 기준으로 인증 유효시간과 재발송 대기시간을 표시하므로 Redis TTL 설정과 화면 시간이 달라지는 문제를 방지한다.
+
+SMTP 메일은 텍스트 전용 메시지가 아니라 `MimeMessage`의 multipart/alternative 형식으로 발송한다. HTML을 지원하는 메일 클라이언트에는 loop 브랜드 카드, 인증번호, 유효시간, 보안 안내가 표시되며 HTML을 지원하지 않는 클라이언트에는 동일한 핵심 내용을 담은 텍스트 대체 본문이 표시된다. HTML 템플릿은 `src/main/resources/templates/mail/email-verification.html`에서 별도로 관리한다.
+
+닉네임 중복확인은 사용자 편의를 위한 사전 검사다. 중복확인 이후 다른 사용자가 동일한 닉네임을 먼저 사용할 수 있으므로, 실제 회원가입 트랜잭션에서도 `existsByNickname` 검사와 데이터베이스 Unique 제약조건을 다시 적용한다.
+
+회원가입 중복 오류는 공통 예외 응답으로 구분한다. 이미 가입된 이메일은 HTTP `409`, 코드 `AUTH_001`, 메시지 `이미 등록된 이메일입니다.`로 반환한다. 닉네임 중복은 HTTP `409`, 코드 `AUTH_002`, 메시지 `이미 사용 중인 닉네임입니다.`로 반환한다. 프론트는 이 JSON 응답의 메시지를 안내 모달에 표시한다. 중복검사는 이메일 인증 완료 키를 소비하기 전에 수행하므로 중복 가입 실패로 인증 상태가 불필요하게 삭제되지 않는다.
 
 비밀번호는 평문으로 저장하지 않는다. 회원가입 전 `BCryptPasswordEncoder`로 해시한 뒤 `users.password_hash`에 저장한다.
 
@@ -167,10 +176,34 @@ Google 인증과 동의가 완료되면 Spring Security가 이 콜백을 처리�
 
 1. Google 사용자 정보에서 이메일을 읽는다.
 2. 이메일로 기존 사용자를 조회한다.
-3. 사용자가 없으면 Google 제공자(`GOOGLE`) 사용자로 생성한다.
+3. 사용자가 없으면 Google 제공자(`GOOGLE`) 사용자와 충돌하지 않는 내부 임시 닉네임을 생성하고 `nicknameConfigured=false`로 저장한다.
 4. Access/Refresh Token을 발급하고 Redis에 Refresh Token 해시를 저장한다.
 5. 두 토큰을 HttpOnly 쿠키로 응답에 넣는다.
 6. `FRONTEND_URL`로 302 리다이렉트한다.
+
+### 9.3 Google 최초 가입 닉네임 설정
+
+프론트는 리다이렉트 후 `/api/auth/session` 응답의 `nicknameConfigured`를 확인한다. 값이 `false`이면 지도 화면으로 진입시키지 않고 닉네임 설정 화면을 표시한다.
+
+```text
+Google 최초 로그인
+        ↓
+임시 내부 닉네임으로 users 생성
+        ↓
+nicknameConfigured = false
+        ↓
+프론트 세션 조회
+        ↓
+닉네임 입력 및 중복확인
+        ↓
+PUT /api/users/me/nickname
+        ↓
+nicknameConfigured = true
+        ↓
+서비스 초기 화면 진입
+```
+
+닉네임 설정 API는 인증된 사용자 ID를 JWT principal에서 읽는다. 요청으로 전달된 사용자 ID를 신뢰하지 않는다. 이미 닉네임 설정을 완료한 사용자는 최초 설정 API를 다시 사용할 수 없으며, 닉네임 변경 기능은 추후 별도 정책과 API로 분리한다.
 
 토큰을 쿼리 파라미터에 넣어 전달하지 않는다. URL은 브라우저 기록, 프록시 로그, 분석 도구, Referer 헤더 등에 남을 수 있기 때문이다.
 
@@ -204,13 +237,15 @@ Credential을 허용하는 CORS 응답에서 Origin을 `*`로 설정하면 안 �
 | --- | --- | --- | --- |
 | `POST` | `/api/auth/email-verifications` | 아니오 | 인증번호 발송 |
 | `POST` | `/api/auth/email-verifications/confirm` | 아니오 | 인증번호 확인 |
+| `POST` | `/api/auth/nicknames/check` | 아니오 | 닉네임 사용 가능 여부 확인 |
 | `POST` | `/api/auth/sign-up` | 아니오 | 회원가입 및 토큰 발급 |
 | `POST` | `/api/auth/login` | 아니오 | 이메일 로그인 및 토큰 발급 |
 | `POST` | `/api/auth/refresh` | 아니오 | Refresh Token 회전 |
 | `POST` | `/api/auth/refresh/cookie` | 아니오 | HttpOnly Refresh Cookie 기반 토큰 회전 |
 | `POST` | `/api/auth/logout` | 아니오 | 현재 Refresh 세션 폐기 |
-| `GET` | `/api/auth/session` | 예 | HttpOnly Access Token 유효성 확인 |
+| `GET` | `/api/auth/session` | 예 | 로그인 사용자와 닉네임 설정 상태 확인 |
 | `GET` | `/oauth2/authorization/google` | 아니오 | Google 로그인 시작 |
+| `PUT` | `/api/users/me/nickname` | 예 | Google 최초 가입 사용자의 닉네임 설정 |
 
 ## 13. 운영 전 보완 사항
 

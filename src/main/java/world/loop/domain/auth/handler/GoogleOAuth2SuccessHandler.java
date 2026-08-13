@@ -3,7 +3,7 @@ package world.loop.domain.auth.handler;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.Map;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.user.OAuth2User;
@@ -45,7 +45,8 @@ public class GoogleOAuth2SuccessHandler implements AuthenticationSuccessHandler 
         User user = userRepository.findByEmail(email)
                 .orElseGet(() -> userRepository.save(User.builder()
                         .email(email)
-                        .nickname(createNickname(principal.getAttributes()))
+                        .nickname(createTemporaryNickname())
+                        .nicknameConfigured(false)
                         .authProvider(AuthProvider.GOOGLE)
                         .build()));
         RefreshTokenService.TokenPair tokens = refreshTokenService.issue(user.getId());
@@ -53,13 +54,12 @@ public class GoogleOAuth2SuccessHandler implements AuthenticationSuccessHandler 
         response.sendRedirect(frontendUrl);
     }
 
-    private String createNickname(Map<String, Object> attributes) {
-        String base = String.valueOf(attributes.getOrDefault("name", "loop"))
-                .replaceAll("[^가-힣a-zA-Z0-9]", "");
-        if (base.isBlank()) {
-            base = "loop";
-        }
-        return (base.length() > 8 ? base.substring(0, 8) : base) + System.currentTimeMillis() % 10_000;
+    private String createTemporaryNickname() {
+        String nickname;
+        do {
+            nickname = "loop" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        } while (userRepository.existsByNickname(nickname));
+        return nickname;
     }
 
 }

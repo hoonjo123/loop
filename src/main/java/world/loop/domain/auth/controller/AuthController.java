@@ -10,15 +10,20 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import world.loop.domain.auth.dto.req.EmailRequest;
 import world.loop.domain.auth.dto.req.LoginRequest;
+import world.loop.domain.auth.dto.req.NicknameCheckRequest;
 import world.loop.domain.auth.dto.req.RefreshRequest;
 import world.loop.domain.auth.dto.req.SignUpRequest;
 import world.loop.domain.auth.dto.req.VerificationRequest;
 import world.loop.domain.auth.dto.res.TokenResponse;
+import world.loop.domain.auth.dto.res.EmailVerificationResponse;
+import world.loop.domain.auth.dto.res.NicknameAvailabilityResponse;
+import world.loop.domain.auth.dto.res.SessionResponse;
 import world.loop.domain.auth.service.AuthService;
 import world.loop.domain.mail.service.EmailVerificationService;
 import world.loop.domain.auth.token.RefreshTokenService;
@@ -37,15 +42,23 @@ public class AuthController {
     private final AccessTokenRevocationService accessTokenRevocationService;
 
     @PostMapping("/email-verifications")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void sendVerificationCode(@Valid @RequestBody EmailRequest request) {
+    public EmailVerificationResponse sendVerificationCode(@Valid @RequestBody EmailRequest request) {
         emailVerificationService.sendCode(request.email());
+        return new EmailVerificationResponse(
+                emailVerificationService.codeTtlSeconds(),
+                emailVerificationService.requestCooldownSeconds()
+        );
     }
 
     @PostMapping("/email-verifications/confirm")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void verifyEmail(@Valid @RequestBody VerificationRequest request) {
         emailVerificationService.verify(request.email(), request.code());
+    }
+
+    @PostMapping("/nicknames/check")
+    public NicknameAvailabilityResponse checkNickname(@Valid @RequestBody NicknameCheckRequest request) {
+        return new NicknameAvailabilityResponse(authService.isNicknameAvailable(request.nickname()));
     }
 
     @PostMapping("/sign-up")
@@ -93,8 +106,8 @@ public class AuthController {
     }
 
     @GetMapping("/session")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void session() {
+    public SessionResponse session(@AuthenticationPrincipal Long userId) {
+        return SessionResponse.from(authService.session(userId));
     }
 
     private String findCookieValue(HttpServletRequest request, String name) {
