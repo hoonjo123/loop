@@ -24,7 +24,7 @@ ALTER TABLE chat_rooms
 - `chat_room_members.left_at IS NULL`: 현재 참여 중인 사용자
 - `chat_room_members.last_read_at`: 대화 목록의 읽지 않은 메시지 수 기준
 - `chat_messages(room_id, created_at)`: 과거 메시지 커서 조회와 최신 메시지 조회
-- `chat_messages.deleted_at`: 메시지 물리 삭제 대신 본문과 이미지 URL을 비우는 소프트 삭제
+- `chat_messages.deleted_at`: 원본 본문과 이미지 URL은 보존하고 삭제 시각만 기록하는 소프트 삭제
 - `chat_rooms.expires_at`: 임시방 종료 시각
 - `chat_rooms.status=CLOSED`: 만료된 임시방 또는 종료된 방
 

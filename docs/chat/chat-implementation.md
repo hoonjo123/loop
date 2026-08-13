@@ -90,5 +90,7 @@ STOMP SEND /app/chat/rooms/{roomId}/messages
 
 - 과거 메시지는 `beforeId` 커서와 최대 100개 제한을 사용한다.
 - 검색은 초기 MVP 정책대로 MySQL `LIKE` 검색을 사용하고 최대 100개를 반환한다.
-- 삭제는 레코드를 제거하지 않고 `content`, `image_url`을 비우고 `deleted_at`을 기록한다.
+- 삭제는 레코드와 원본 `content`, `image_url`을 보존하고 `deleted_at`만 기록한다.
+- 일반 API 응답에서는 삭제된 원문과 이미지 URL을 `null`로 마스킹하여 프론트에 노출하지 않는다.
+- 운영자는 추후 신고 조사와 증거 확인을 위한 별도 관리자 권한 API에서 보존된 원문을 확인할 수 있다.
 - 프론트에는 삭제된 메시지라는 표시만 노출한다.

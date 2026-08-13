@@ -67,8 +67,6 @@ public class ChatMessage extends BaseTimeEntity {
     }
 
     public void delete() {
-        this.content = null;
-        this.imageUrl = null;
         this.deletedAt = LocalDateTime.now();
     }
 }

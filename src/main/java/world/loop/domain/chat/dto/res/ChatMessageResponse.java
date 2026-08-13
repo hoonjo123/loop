@@ -18,6 +18,7 @@ public record ChatMessageResponse(
 ) {
 
     public static ChatMessageResponse from(ChatMessage message) {
+        boolean deleted = message.getDeletedAt() != null;
         return new ChatMessageResponse(
                 message.getId(),
                 message.getRoom().getId(),
@@ -25,10 +26,10 @@ public record ChatMessageResponse(
                 message.getSender() == null ? null : message.getSender().getNickname(),
                 message.getSender() == null ? null : message.getSender().getProfileImageUrl(),
                 message.getMessageType(),
-                message.getContent(),
-                message.getImageUrl(),
+                deleted ? null : message.getContent(),
+                deleted ? null : message.getImageUrl(),
                 message.getCreatedAt(),
-                message.getDeletedAt() != null
+                deleted
         );
     }
 }
