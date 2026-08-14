@@ -13,7 +13,6 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -24,7 +23,8 @@ import world.loop.domain.user.entity.User;
 @Entity
 @Table(name = "chat_rooms", indexes = {
         @Index(name = "idx_chat_rooms_region_status", columnList = "region_label,status"),
-        @Index(name = "idx_chat_rooms_expires_at", columnList = "expires_at")
+        @Index(name = "idx_chat_rooms_open_chat_type", columnList = "open_chat_type"),
+        @Index(name = "idx_chat_rooms_source_room_id", columnList = "source_room_id")
 })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -39,8 +39,8 @@ public class ChatRoom extends BaseTimeEntity {
     private ChatRoomType roomType;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "duration_type", length = 20)
-    private RoomDurationType durationType;
+    @Column(name = "open_chat_type", length = 20)
+    private OpenChatType openChatType;
 
     @Column(length = 40)
     private String title;
@@ -57,11 +57,12 @@ public class ChatRoom extends BaseTimeEntity {
     @Column(precision = 10, scale = 7)
     private BigDecimal longitude;
 
-    @Column(name = "expires_at")
-    private LocalDateTime expiresAt;
-
     @Column(name = "direct_key", unique = true, length = 50)
     private String directKey;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_room_id")
+    private ChatRoom sourceRoom;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -74,32 +75,30 @@ public class ChatRoom extends BaseTimeEntity {
     @Builder
     private ChatRoom(
             ChatRoomType roomType,
-            RoomDurationType durationType,
+            OpenChatType openChatType,
             String title,
             String description,
             String regionLabel,
             BigDecimal latitude,
             BigDecimal longitude,
-            LocalDateTime expiresAt,
             String directKey,
+            ChatRoom sourceRoom,
             User createdBy
     ) {
         this.roomType = roomType;
-        this.durationType = durationType;
+        this.openChatType = openChatType;
         this.title = title;
         this.description = description;
         this.regionLabel = regionLabel;
         this.latitude = latitude;
         this.longitude = longitude;
-        this.expiresAt = expiresAt;
         this.directKey = directKey;
+        this.sourceRoom = sourceRoom;
         this.createdBy = createdBy;
     }
 
-    public boolean isExpired(LocalDateTime now) {
-        return durationType == RoomDurationType.TEMPORARY
-                && expiresAt != null
-                && !expiresAt.isAfter(now);
+    public boolean isOneToOneEntry() {
+        return roomType == ChatRoomType.OPEN && openChatType == OpenChatType.ONE_TO_ONE;
     }
 
     public void close() {

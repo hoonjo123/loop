@@ -73,7 +73,7 @@ public class ChatRoomController {
     ) {
         boolean alreadyJoined = chatRoomService.isMember(roomId, userId);
         ChatRoomResponse room = chatRoomService.join(userId, roomId);
-        if (!alreadyJoined) {
+        if (!alreadyJoined && room.roomType() == world.loop.domain.chat.entity.ChatRoomType.OPEN) {
             publishSystemMessage(roomId, "새로운 참여자가 채팅방에 입장했습니다.");
         }
         return room;

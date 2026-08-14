@@ -55,7 +55,7 @@ public class ChatWebSocketAuthorizationInterceptor implements ChannelInterceptor
         try {
             Long roomId = Long.valueOf(destination.substring(prefix.length()));
             Long userId = (Long) attributes.get(ChatWebSocketHandshakeInterceptor.USER_ID_ATTRIBUTE);
-            chatRoomService.requireMembership(roomId, userId);
+            chatRoomService.requireMessageAccess(roomId, userId);
         } catch (NumberFormatException exception) {
             throw new MessagingException("Invalid chat room destination.");
         }

@@ -17,7 +17,6 @@ import world.loop.domain.chat.entity.ChatRoom;
 import world.loop.domain.chat.entity.ChatRoomMember;
 import world.loop.domain.chat.entity.ChatRoomStatus;
 import world.loop.domain.chat.entity.ChatRoomType;
-import world.loop.domain.chat.entity.RoomDurationType;
 import world.loop.domain.chat.repository.ChatMessageRepository;
 import world.loop.domain.chat.repository.ChatRoomMemberRepository;
 import world.loop.domain.chat.repository.ChatRoomRepository;
@@ -39,17 +38,15 @@ public class ChatRoomService {
 
     @Transactional
     public ChatRoomResponse createOpenRoom(Long userId, ChatRoomCreateRequest request) {
-        validateExpiration(request);
         User owner = findUser(userId);
         ChatRoom room = chatRoomRepository.save(ChatRoom.builder()
                 .roomType(ChatRoomType.OPEN)
-                .durationType(request.durationType())
+                .openChatType(request.openChatType())
                 .title(request.title().trim())
                 .description(request.description().trim())
                 .regionLabel(request.regionLabel().trim())
                 .latitude(request.latitude())
                 .longitude(request.longitude())
-                .expiresAt(request.durationType() == RoomDurationType.TEMPORARY ? request.expiresAt() : null)
                 .createdBy(owner)
                 .build());
         chatRoomMemberRepository.save(ChatRoomMember.builder()
@@ -88,9 +85,7 @@ public class ChatRoomService {
                         ChatRoomStatus.ACTIVE,
                         region.trim()
                 );
-        LocalDateTime now = LocalDateTime.now();
         return rooms.stream()
-                .filter(room -> !closeIfExpired(room, now))
                 .map(room -> response(room, userId))
                 .toList();
     }
@@ -108,14 +103,19 @@ public class ChatRoomService {
             throw new BusinessException(ErrorCode.CHAT_ROOM_ACCESS_DENIED);
         }
         User user = findUser(userId);
-        ChatRoomMember member = chatRoomMemberRepository.findByRoomIdAndUserId(roomId, userId)
-                .orElseGet(() -> chatRoomMemberRepository.save(ChatRoomMember.builder()
-                        .room(room)
-                        .user(user)
-                        .role(ChatMemberRole.MEMBER)
-                        .build()));
-        if (!member.isActive()) {
-            member.rejoin();
+        restoreOpenMembership(room, user);
+        if (room.isOneToOneEntry()) {
+            if (room.getCreatedBy().getId().equals(userId)) {
+                throw new BusinessException(ErrorCode.DIRECT_CHAT_SELF_NOT_ALLOWED);
+            }
+            User owner = room.getCreatedBy();
+            requireNoBlockBetween(owner.getId(), userId);
+            String directKey = directKey(room.getId(), owner.getId(), userId);
+            ChatRoom directRoom = chatRoomRepository.findByDirectKey(directKey)
+                    .orElseGet(() -> createDirectRoom(owner, user, directKey, room));
+            restoreDirectMembership(directRoom, owner);
+            restoreDirectMembership(directRoom, user);
+            return response(directRoom, userId);
         }
         return response(room, userId);
     }
@@ -162,6 +162,7 @@ public class ChatRoomService {
     @Transactional(readOnly = true)
     public List<ConversationResponse> getMyConversations(Long userId) {
         return chatRoomMemberRepository.findActiveRoomsByUserId(userId).stream()
+                .filter(member -> !member.getRoom().isOneToOneEntry())
                 .map(member -> conversation(member.getRoom(), member, userId))
                 .sorted(Comparator.comparing(
                         ConversationResponse::lastMessageAt,
@@ -180,6 +181,15 @@ public class ChatRoomService {
         if (!chatRoomMemberRepository.existsByRoomIdAndUserIdAndLeftAtIsNull(roomId, userId)) {
             throw new BusinessException(ErrorCode.CHAT_ROOM_ACCESS_DENIED);
         }
+    }
+
+    @Transactional
+    public void requireMessageAccess(Long roomId, Long userId) {
+        ChatRoom room = findActiveRoom(roomId);
+        if (room.isOneToOneEntry()) {
+            throw new BusinessException(ErrorCode.CHAT_ROOM_ACCESS_DENIED);
+        }
+        requireMembership(roomId, userId);
     }
 
     @Transactional(readOnly = true)
@@ -204,16 +214,21 @@ public class ChatRoomService {
     public ChatRoom findActiveRoom(Long roomId) {
         ChatRoom room = chatRoomRepository.findDetailById(roomId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND));
-        if (room.getStatus() != ChatRoomStatus.ACTIVE || closeIfExpired(room, LocalDateTime.now())) {
+        if (room.getStatus() != ChatRoomStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.CHAT_ROOM_CLOSED);
         }
         return room;
     }
 
     private ChatRoom createDirectRoom(User requester, User target, String directKey) {
+        return createDirectRoom(requester, target, directKey, null);
+    }
+
+    private ChatRoom createDirectRoom(User requester, User target, String directKey, ChatRoom sourceRoom) {
         ChatRoom room = chatRoomRepository.save(ChatRoom.builder()
                 .roomType(ChatRoomType.DIRECT)
                 .directKey(directKey)
+                .sourceRoom(sourceRoom)
                 .createdBy(requester)
                 .build());
         chatRoomMemberRepository.save(ChatRoomMember.builder()
@@ -227,6 +242,18 @@ public class ChatRoomService {
                 .role(ChatMemberRole.MEMBER)
                 .build());
         return room;
+    }
+
+    private void restoreOpenMembership(ChatRoom room, User user) {
+        ChatRoomMember member = chatRoomMemberRepository.findByRoomIdAndUserId(room.getId(), user.getId())
+                .orElseGet(() -> chatRoomMemberRepository.save(ChatRoomMember.builder()
+                        .room(room)
+                        .user(user)
+                        .role(ChatMemberRole.MEMBER)
+                        .build()));
+        if (!member.isActive()) {
+            member.rejoin();
+        }
     }
 
     private void restoreDirectMembership(ChatRoom room, User user) {
@@ -287,23 +314,12 @@ public class ChatRoomService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
     }
 
-    private boolean closeIfExpired(ChatRoom room, LocalDateTime now) {
-        if (!room.isExpired(now)) {
-            return false;
-        }
-        room.close();
-        return true;
-    }
-
-    private void validateExpiration(ChatRoomCreateRequest request) {
-        if (request.durationType() == RoomDurationType.TEMPORARY
-                && (request.expiresAt() == null || !request.expiresAt().isAfter(LocalDateTime.now()))) {
-            throw new BusinessException(ErrorCode.INVALID_REQUEST);
-        }
-    }
-
     private String directKey(Long firstUserId, Long secondUserId) {
         return Math.min(firstUserId, secondUserId) + ":" + Math.max(firstUserId, secondUserId);
+    }
+
+    private String directKey(Long sourceRoomId, Long firstUserId, Long secondUserId) {
+        return sourceRoomId + ":" + directKey(firstUserId, secondUserId);
     }
 
     private void requireNoBlockBetween(Long firstUserId, Long secondUserId) {

@@ -4,8 +4,8 @@
 
 ## 구현 범위
 
-- 오픈채팅방 생성, 목록, 상세, 입장, 퇴장
-- 영구방과 임시방
+- 그룹채팅·1:1 모집방 생성, 목록, 상세, 참여
+- 그룹채팅의 입장·퇴장과 1:1 모집방별 개별 DIRECT 대화
 - 참여자 목록, 방장 표시, 방장 강퇴
 - 1:1 채팅방 생성과 중복 방 방지
 - 내 채팅 목록, 최신 메시지, 읽지 않은 메시지 수
@@ -40,13 +40,23 @@ Access Token은 `HttpOnly` Cookie에 저장된다. `HttpOnly`는 브라우저 Ja
 
 따라서 클라이언트가 전달한 `roomId`나 STOMP 목적지만 신뢰하지 않는다.
 
+## 읽지 않은 메시지 실시간 배지
+
+프론트는 내 채팅 목록에 포함된 모든 방을 하나의 STOMP 연결에서 구독한다. 현재 열어둔 방이 아닌 곳에서 다른 사용자의 메시지가 수신되면 해당 대화의 `unreadCount`와 전체 내 채팅 배지를 즉시 증가시킨다.
+
+- 현재 열어둔 방의 메시지는 즉시 읽음 처리되므로 배지를 증가시키지 않는다.
+- 본인이 보낸 메시지와 SYSTEM 메시지는 읽지 않은 수에서 제외한다.
+- 구독 중인 방이 추가·삭제되면 기존 연결을 유지하면서 해당 방 구독만 동기화한다.
+- 30초 API 재조회는 WebSocket 재연결 구간의 누락 가능성을 보정하는 용도로 유지한다.
+- Access Token 갱신 시 Cookie를 회전한 뒤 STOMP 연결과 전체 방 구독을 다시 구성한다.
+
 ## 실시간 메시지 흐름
 
 ```text
 STOMP SEND /app/chat/rooms/{roomId}/messages
   -> WebSocket 세션 토큰 검증
   -> 사용자 Room Member 여부 검증
-  -> 임시방 만료 및 방 상태 검증
+  -> 방 상태와 실제 메시지 대화방 여부 검증
   -> 메시지 타입과 본문 검증
   -> MySQL 저장
   -> /topic/chat/rooms/{roomId} Broadcast
@@ -58,10 +68,10 @@ STOMP SEND /app/chat/rooms/{roomId}/messages
 
 | Method | Endpoint | 기능 |
 | --- | --- | --- |
-| `POST` | `/api/chat-rooms` | 오픈채팅방 생성 및 생성자를 방장으로 참여 처리 |
+| `POST` | `/api/chat-rooms` | `GROUP` 또는 `ONE_TO_ONE` 공개 모집방 생성 |
 | `GET` | `/api/chat-rooms?region=` | 활성 오픈채팅방 목록 |
 | `GET` | `/api/chat-rooms/{roomId}` | 채팅방 상세 |
-| `POST` | `/api/chat-rooms/{roomId}/members` | 오픈채팅방 입장 또는 재입장 |
+| `POST` | `/api/chat-rooms/{roomId}/members` | 그룹방 입장 또는 1:1 모집방의 방장-참여자 DIRECT 방 반환 |
 | `DELETE` | `/api/chat-rooms/{roomId}/members/me` | 채팅방 퇴장 |
 | `DELETE` | `/api/chat-rooms/{roomId}/members/{userId}` | 방장 강퇴 |
 | `DELETE` | `/api/chat-rooms/{roomId}` | 방장의 채팅방 종료 |
@@ -76,15 +86,17 @@ STOMP SEND /app/chat/rooms/{roomId}/messages
 | `DELETE` | `/api/users/me/blocks/{userId}` | 사용자 차단 해제 |
 | `POST` | `/api/reports` | 사용자·방·메시지 신고 |
 
-## 임시방 종료
+## 공개 모집방의 두 가지 대화 방식
 
-- API 접근 시 현재 시각이 `expires_at` 이상이면 즉시 `CLOSED` 처리한다.
-- 스케줄러가 1분마다 만료된 활성 방을 일괄 종료한다.
-- 종료된 방은 목록에서 제외하며 신규 입장과 메시지 전송이 차단된다.
+- `GROUP`은 모집방과 실제 메시지 방이 동일하다. 생성자는 방장이 되고 참여자는 같은 Room Member 집합에 들어간다.
+- `ONE_TO_ONE` 모집방은 지도 탐색과 참여 진입점으로만 사용한다. 참여하면 모집방 ID와 두 사용자 ID로 `direct_key`를 만들고 방장과 참여자만 속한 DIRECT 방을 반환한다.
+- 여러 사용자가 같은 ONE_TO_ONE 모집방에 참여해도 서로를 볼 수 없으며 각자 방장과만 대화한다.
+- ONE_TO_ONE 모집방 ID로 메시지 조회·검색·전송·WebSocket 구독을 요청하면 서버가 거부한다.
+- 영구/임시 수명 구분과 자동 만료 스케줄러는 제거했다. 방은 방장이 종료할 때까지 유지된다.
 
 ## 1:1 대화와 차단
 
-두 사용자 ID를 오름차순으로 결합한 `direct_key`에 Unique 제약조건을 적용하여 동일한 사용자 조합의 DIRECT 방이 여러 개 생기지 않도록 한다. 어느 한쪽이라도 상대를 차단했다면 신규 1:1 방 생성과 기존 DIRECT 방 메시지 전송을 서버에서 거부한다.
+프로필에서 시작한 1:1은 두 사용자 ID를, 모집방에서 시작한 1:1은 모집방 ID와 두 사용자 ID를 결합한 `direct_key`에 Unique 제약조건을 적용한다. 어느 한쪽이라도 상대를 차단했다면 신규 1:1 방 생성과 기존 DIRECT 방 메시지 전송을 서버에서 거부한다.
 
 ## 메시지 조회와 삭제
 

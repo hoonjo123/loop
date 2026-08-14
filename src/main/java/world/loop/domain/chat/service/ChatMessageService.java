@@ -31,7 +31,7 @@ public class ChatMessageService {
 
     @Transactional
     public ChatMessageResponse send(Long userId, Long roomId, ChatMessageSendRequest request) {
-        chatRoomService.requireMembership(roomId, userId);
+        chatRoomService.requireMessageAccess(roomId, userId);
         ChatRoom room = chatRoomService.findActiveRoom(roomId);
         chatRoomService.requireDirectMessageAllowed(room, userId);
         User sender = userRepository.findById(userId)
@@ -60,7 +60,7 @@ public class ChatMessageService {
 
     @Transactional(readOnly = true)
     public ChatMessagePageResponse getMessages(Long userId, Long roomId, Long beforeId, int size) {
-        chatRoomService.requireMembership(roomId, userId);
+        chatRoomService.requireMessageAccess(roomId, userId);
         int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
         List<ChatMessage> fetched = chatMessageRepository.findPage(
                 roomId,
@@ -80,7 +80,7 @@ public class ChatMessageService {
 
     @Transactional(readOnly = true)
     public List<ChatMessageResponse> search(Long userId, Long roomId, String query) {
-        chatRoomService.requireMembership(roomId, userId);
+        chatRoomService.requireMessageAccess(roomId, userId);
         if (query == null || query.isBlank()) {
             return List.of();
         }
@@ -91,7 +91,7 @@ public class ChatMessageService {
 
     @Transactional
     public ChatMessageResponse delete(Long userId, Long roomId, Long messageId) {
-        chatRoomService.requireMembership(roomId, userId);
+        chatRoomService.requireMessageAccess(roomId, userId);
         ChatMessage message = chatMessageRepository.findById(messageId)
                 .filter(item -> item.getRoom().getId().equals(roomId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.CHAT_MESSAGE_NOT_FOUND));
