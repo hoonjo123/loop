@@ -4,9 +4,9 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import world.loop.domain.user.dto.res.BlockedUserResponse;
+import world.loop.domain.user.dto.res.FriendResponse;
 import world.loop.domain.user.entity.User;
-import world.loop.domain.user.entity.UserBlock;
+import world.loop.domain.user.entity.UserFriend;
 import world.loop.domain.user.repository.UserBlockRepository;
 import world.loop.domain.user.repository.UserFriendRepository;
 import world.loop.domain.user.repository.UserRepository;
@@ -15,42 +15,45 @@ import world.loop.global.exception.ErrorCode;
 
 @Service
 @RequiredArgsConstructor
-public class UserBlockService {
+public class UserFriendService {
 
+    private final UserFriendRepository userFriendRepository;
     private final UserBlockRepository userBlockRepository;
     private final UserRepository userRepository;
-    private final UserFriendRepository userFriendRepository;
 
     @Transactional
-    public void block(Long userId, Long targetUserId) {
+    public void add(Long userId, Long targetUserId) {
         if (userId.equals(targetUserId)) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
-        if (userBlockRepository.existsByBlockerIdAndBlockedId(userId, targetUserId)) {
-            return;
+        if (userBlockRepository.existsBetween(userId, targetUserId)) {
+            throw new BusinessException(ErrorCode.BLOCKED_USER_INTERACTION);
         }
-        User blocker = findUser(userId);
-        User blocked = findUser(targetUserId);
         Long userOneId = Math.min(userId, targetUserId);
         Long userTwoId = Math.max(userId, targetUserId);
-        userFriendRepository.findByUserOneIdAndUserTwoId(userOneId, userTwoId)
-                .ifPresent(userFriendRepository::delete);
-        userBlockRepository.save(UserBlock.builder()
-                .blocker(blocker)
-                .blocked(blocked)
+        if (userFriendRepository.existsByUserOneIdAndUserTwoId(userOneId, userTwoId)) {
+            return;
+        }
+        User userOne = findUser(userOneId);
+        User userTwo = findUser(userTwoId);
+        userFriendRepository.save(UserFriend.builder()
+                .userOne(userOne)
+                .userTwo(userTwo)
                 .build());
     }
 
     @Transactional
-    public void unblock(Long userId, Long targetUserId) {
-        userBlockRepository.findByBlockerIdAndBlockedId(userId, targetUserId)
-                .ifPresent(userBlockRepository::delete);
+    public void remove(Long userId, Long targetUserId) {
+        Long userOneId = Math.min(userId, targetUserId);
+        Long userTwoId = Math.max(userId, targetUserId);
+        userFriendRepository.findByUserOneIdAndUserTwoId(userOneId, userTwoId)
+                .ifPresent(userFriendRepository::delete);
     }
 
     @Transactional(readOnly = true)
-    public List<BlockedUserResponse> getBlockedUsers(Long userId) {
-        return userBlockRepository.findAllByBlockerId(userId).stream()
-                .map(BlockedUserResponse::from)
+    public List<FriendResponse> getFriends(Long userId) {
+        return userFriendRepository.findAllByUserId(userId).stream()
+                .map(friend -> FriendResponse.from(friend, userId))
                 .toList();
     }
 
